@@ -1,0 +1,635 @@
+<!-- WELCOME SCREEN -->
+<section id="welcome"
+  style="height:100vh; background:black; display:flex;
+  flex-direction:column; align-items:center; justify-content:center;
+  color:white; position:relative; overflow:hidden;">
+  <div id="stars"></div>
+  <h1 style="font-size:3rem; margin-bottom:40px; z-index:2;">Míšovo učivo</h1>
+  <button id="googleLoginBtn"
+    style="padding:15px 35px; font-size:1.2rem; border:none;
+    border-radius:8px; background:#a855f7; color:white;
+    cursor:pointer; z-index:2;">Přihlásit se přes Google</button>
+</section>
+
+<!-- PADAJÍCÍ ROZMAZANÉ HVĚZDY -->
+<style>
+  #stars{
+    position:absolute;
+    inset:0;
+    background:
+      radial-gradient(circle, rgba(255,255,255,0.8) 0%, transparent 60%)
+      1px 1px / 2px 2px,
+      #000;
+    filter: blur(2px);
+    background-size: 3px 3px;
+    animation: fall 12s linear infinite;
+  }
+  @keyframes fall{
+    0%{ background-position: 0px 0px; }
+    100%{ background-position: 0px 1000px; }
+  }
+</style>
+
+<!-- GOOGLE AUTH (FIREBASE) -->
+<script>
+  // Using Firebase compat APIs (matches the rest of the script which uses firebase.auth() and firebase.firestore())
+  // Ensure you've included compat SDKs in the <head> (firebase-app-compat.js, firebase-auth-compat.js, firebase-firestore-compat.js)
+  const firebaseConfig = {
+    apiKey: "AIzaSyDKGTfjPvPFhAtIOZqMm0b5XFTCAp0dqgA",
+    authDomain: "zapisnicek-c676c.firebaseapp.com",
+    projectId: "zapisnicek-c676c",
+    storageBucket: "zapisnicek-c676c.firebasestorage.app",
+    messagingSenderId: "120243162024",
+    appId: "1:120243162024:web:6e2c545d1a80feb9fe2b9d",
+    measurementId: "G-6GHB1HDMSP"
+  };
+
+  // Initialize (if not already)
+  if (!firebase.apps || !firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
+
+  // Google provider using compat API
+  const provider = new firebase.auth.GoogleAuthProvider();
+
+  document.getElementById("googleLoginBtn").onclick = async () => {
+    try {
+      // prefer popup, but fallback to redirect if blocked or unsupported
+      await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      const result = await firebase.auth().signInWithPopup(provider);
+      console.log('Signed in (popup):', result.user);
+      // hide welcome and show app
+      document.getElementById('welcome').style.display = 'none';
+      const notes = document.getElementById('app');
+      if (notes) notes.style.display = 'block';
+    } catch (err) {
+      console.error('SignIn error', err);
+      // fallback: some browsers or environments block popups (file:// or 3rd-party cookie settings)
+      if (err && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment' || err.code === 'auth/cancelled-popup-request')) {
+        try {
+          await firebase.auth().signInWithRedirect(provider);
+        } catch (rerr) {
+          console.error('Redirect fallback failed', rerr);
+          alert('Přihlášení se nepodařilo (popup i redirect selhal). Zkontroluj nastavení autorizovaných domén v Firebase Console a spusť stránku přes https nebo localhost.');
+        }
+      } else {
+        alert('Chyba přihlášení: ' + (err && err.message || err));
+      }
+    }
+  };
+
+  // Keep the app visible state in sync
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) {
+      document.getElementById('welcome').style.display = 'none';
+      const notes = document.getElementById('app'); if (notes) notes.style.display = 'block';
+    } else {
+      document.getElementById('welcome').style.display = 'flex';
+      const notes = document.getElementById('app'); if (notes) notes.style.display = 'none';
+    }
+  });
+</script>
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Míšovo učivo — Zápisky</title>
+  <!-- Firebase SDK (compat build for simpler migration) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <style>
+    :root{
+      --bg:#000;
+      --accent:#7b3cff; /* fialova */
+      --panel:#0f0f14;
+      --muted:#9aa0a6;
+      --glass: rgba(255,255,255,0.03);
+    }
+    html,body{height:100%;margin:0;font-family:Inter,Segoe UI,system-ui,Roboto,'Helvetica Neue',Arial}
+    body{background:var(--bg);color:#eee;overflow:hidden}
+
+    /* welcome screen */
+    #welcome{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:40}
+    .title{font-size:40px;font-weight:700;margin-bottom:18px;letter-spacing:1px}
+    .subtitle{color:var(--muted);margin-bottom:24px}
+
+    .btn{background:linear-gradient(180deg,var(--accent),#5e2bd1);border:none;padding:12px 28px;border-radius:12px;color:white;font-weight:600;cursor:pointer;box-shadow:0 6px 20px rgba(123,60,255,0.18)}
+    .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+
+    /* stars background */
+    #starsCanvas{position:fixed;inset:0;z-index:1}
+    #starsBlur{position:fixed;inset:0;filter:blur(8px) saturate(1.1);opacity:0.6;z-index:2;pointer-events:none}
+
+    /* main app */
+    #app{position:absolute;inset:0;display:none;z-index:50}
+    .app-grid{display:grid;grid-template-columns:320px 1fr;gap:14px;height:100%;padding:18px}
+
+    /* left column */
+    .sidebar{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:12px;overflow:auto}
+    .sidebar header{display:flex;align-items:center;justify-content:space-between;padding:6px}
+    .userBadge{font-size:14px;color:var(--muted)}
+
+    .sections{margin-top:10px}
+    .section{padding:10px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:space-between}
+    .section:hover{background:rgba(255,255,255,0.02)}
+    .section.active{background:linear-gradient(90deg, rgba(123,60,255,0.12), rgba(71,40,180,0.06));border:1px solid rgba(123,60,255,0.14)}
+    .sublist{margin-left:8px;margin-top:6px}
+    .sub{padding:6px 8px;border-radius:6px;cursor:pointer}
+    .sub.active{background:rgba(255,255,255,0.02)}
+
+    /* right panel */
+    .editorWrap{background:var(--panel);border-radius:14px;padding:8px;display:flex;flex-direction:column;height:100%;overflow:hidden}
+    .toolbar{display:flex;gap:8px;align-items:center;padding:8px;border-bottom:1px solid rgba(255,255,255,0.03)}
+    .toolbar select,input{background:transparent;border:1px solid rgba(255,255,255,0.04);padding:6px;border-radius:8px;color:#ddd}
+    .toolbar button{background:transparent;border:1px solid rgba(255,255,255,0.04);padding:8px;border-radius:8px;color:#ddd;cursor:pointer}
+    .editorHeader{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;color:var(--muted);font-size:13px}
+
+    .editor{flex:1;padding:18px;overflow:auto}
+    .doc{background:transparent;border-radius:6px;min-height:200px;outline:none;padding:14px;border:1px solid rgba(255,255,255,0.02);backdrop-filter: blur(4px);}
+
+    /* canvas painter popup */
+    #painter{position:absolute;right:40px;bottom:40px;width:420px;height:280px;background:#0b0b0d;border-radius:10px;padding:8px;box-shadow:0 20px 60px rgba(0,0,0,0.7);display:none;z-index:60}
+    #painter canvas{background:white;border-radius:6px;width:100%;height:200px}
+    .small{font-size:12px;color:var(--muted)}
+
+    /* responsive */
+    @media (max-width:900px){.app-grid{grid-template-columns:1fr;height:100%}}
+
+    /* custom context menu */
+    #ctxmenu{position:fixed;z-index:80;background:var(--panel);border-radius:8px;padding:6px;display:none;box-shadow:0 8px 30px rgba(0,0,0,0.7)}
+    #ctxmenu button{display:block;border:none;background:transparent;color:#ddd;padding:8px 12px;border-radius:6px;cursor:pointer;width:100%;text-align:left}
+    #ctxmenu button:hover{background:rgba(255,255,255,0.02)}
+
+    /* login modal */
+    #loginModal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:100}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:18px;border-radius:12px;width:360px}
+    .field{display:flex;flex-direction:column;margin-bottom:10px}
+    .field input{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#eee}
+
+    .topbar{position:fixed;left:18px;top:18px;z-index:60}
+  </style>
+</head>
+<body>
+
+<canvas id="starsCanvas"></canvas>
+<canvas id="starsBlur"></canvas>
+
+
+  <div class="subtitle">zapisky — tvoje poznámky, kdekoliv se přihlásíš</div>
+  <button id="openLogin" class="btn">Přihlásit se / Vstoupit</button>
+</div>
+
+<!-- custom login modal (email-based) -->
+<div id="loginModal">
+  <div class="card">
+    <h3>Přihlášení emailem</h3>
+    <div class="field"><label>Email</label><input id="email" type="email" placeholder="tvuj@email.cz"></div>
+    <div class="field"><label>Heslo</label><input id="password" type="password" placeholder="min. 6 znaku"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button id="signupBtn" class="btn">Registrovat</button>
+      <button id="signinBtn" class="btn ghost">Přihlásit</button>
+    </div>
+    <p class="small" style="margin-top:10px;color:var(--muted)">Používáme Firebase Authentication a Firestore pro synchronizaci poznámek mezi zařízeními. Vložte prosím Firebase konfiguraci do horní části souboru.</p>
+  </div>
+</div>
+
+<!-- app -->
+<div id="app">
+  <div class="topbar"><button id="logout" class="btn ghost">Odhlásit</button></div>
+  <div class="app-grid">
+    <div class="sidebar">
+      <header>
+        <div>
+          <div style="font-weight:700">Sekce</div>
+          <div class="userBadge" id="userEmail">—</div>
+        </div>
+        <div><button id="newSection" class="btn">Nová sekce</button></div>
+      </header>
+
+      <div class="sections" id="sectionsList"></div>
+    </div>
+
+    <div class="editorWrap">
+      <div class="toolbar">
+        <select id="fontSelect"><option value="Inter">Inter</option><option value="Arial">Arial</option><option value="Times New Roman">Times</option></select>
+        <select id="sizeSelect"><option>Normal</option><option>Velké</option><option>Malé</option></select>
+        <button id="boldBtn"><b>B</b></button>
+        <button id="italicBtn"><i>I</i></button>
+        <button id="insertImg">Vložit obrázek</button>
+        <button id="paintBtn">Malování</button>
+        <button id="undoBtn">Undo</button>
+        <button id="redoBtn">Redo</button>
+        <div style="margin-left:auto;color:var(--muted);font-size:13px" id="lastEdited">—</div>
+      </div>
+      <div class="editorHeader"><div id="currentPath">Vyber sekci → podsekci</div><div class="small">Upraveno: <span id="lastEditedLabel">—</span></div></div>
+      <div class="editor">
+        <div id="doc" class="doc" contenteditable="true"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- painter popup -->
+<div id="painter">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="small">Malování (ulož do dokumentu)</div><div><button id="savePainting" class="btn small">Uložit</button></div></div>
+  <canvas id="paintCanvas"></canvas>
+  <div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end"><button id="closePainter" class="btn ghost">Zavřít</button></div>
+</div>
+
+<!-- context menu -->
+<div id="ctxmenu">
+  <button data-action="newSection">Nová sekce</button>
+  <button data-action="rename">Přejmenovat</button>
+  <button data-action="delete">Smazat</button>
+  <button data-action="copy">Kopírovat</button>
+</div>
+
+<script>
+// STARFIELD
+const starsCanvas=document.getElementById('starsCanvas');
+const starsBlur=document.getElementById('starsBlur');
+const ctxS=starsCanvas.getContext('2d');
+const ctxB=starsBlur.getContext('2d');
+function resizeStars(){starsCanvas.width=innerWidth;starsCanvas.height=innerHeight;starsBlur.width=innerWidth;starsBlur.height=innerHeight;}
+resizeStars();
+let stars=[];function initStars(){stars=[];for(let i=0;i<160;i++){stars.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,s:0.5+Math.random()*1.5,spd:1+Math.random()*2});}}
+initStars();
+function drawStars(){ctxS.clearRect(0,0,innerWidth,innerHeight);ctxB.clearRect(0,0,innerWidth,innerHeight);
+stars.forEach(st=>{ctxS.fillStyle='white';ctxS.globalAlpha=0.7;ctxS.fillRect(st.x,st.y,st.s,st.s);
+ctxB.fillStyle='white';ctxB.globalAlpha=0.15;ctxB.fillRect(st.x,st.y,st.s*1.5,st.s*1.5);
+st.y+=st.spd;st.x+=st.spd*0.4;if(st.y>innerHeight||st.x>innerWidth){st.x=Math.random()*innerWidth;st.y=-10;}});
+requestAnimationFrame(drawStars);} drawStars();
+// ===========================
+//  CONFIG: vlož sem svou Firebase konfiguraci
+//  (Vytvoř projekt na https://console.firebase.google.com, povol Authentication > Email/Password a Firestore.)
+const firebaseConfig = {
+  apiKey: "PUT_YOUR_API_KEY_HERE",
+  authDomain: "PUT_YOUR_AUTHDOMAIN.firebaseapp.com",
+  projectId: "PUT_YOUR_PROJECT_ID",
+  storageBucket: "PUT_YOUR_BUCKET.appspot.com",
+  messagingSenderId: "...",
+  appId: "..."
+};
+// ===========================
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// simple helpers
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+// UI refs
+const welcome = $('#welcome');
+const openLogin = $('#openLogin');
+const loginModal = $('#loginModal');
+const signinBtn = $('#signinBtn');
+const signupBtn = $('#signupBtn');
+const emailInput = $('#email');
+const pwInput = $('#password');
+const appDiv = $('#app');
+const logoutBtn = $('#logout');
+const userEmail = $('#userEmail');
+const sectionsList = $('#sectionsList');
+const newSectionBtn = $('#newSection');
+const ctxmenu = $('#ctxmenu');
+const doc = $('#doc');
+const currentPath = $('#currentPath');
+const lastEditedLabel = $('#lastEditedLabel');
+const lastEdited = $('#lastEdited');
+const paintBtn = $('#paintBtn');
+const painter = $('#painter');
+const paintCanvas = $('#paintCanvas');
+const savePainting = $('#savePainting');
+const closePainter = $('#closePainter');
+
+let currentUser = null;
+let userDocRef = null; // firestore doc for user's workspace
+let workspace = {sections: {}}; // local cache
+let activeSectionId = null;
+let activeSubId = null;
+
+// ======= stars background animation =======
+const starsCanvas = document.getElementById('starsCanvas');
+const starsBlur = document.getElementById('starsBlur');
+function resizeCanv(){[starsCanvas,starsBlur].forEach(c=>{c.width=innerWidth;c.height=innerHeight});}
+window.addEventListener('resize',resizeCanv);resizeCanv();
+const ctx = starsCanvas.getContext('2d');
+const ctxb = starsBlur.getContext('2d');
+
+function makeStars(count=160){
+  const arr=[];
+  for(let i=0;i<count;i++) arr.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,r:Math.random()*1.8+0.2,v:Math.random()*0.2+0.02});
+  return arr;
+}
+let stars=makeStars(220);
+function tick(){
+  ctx.clearRect(0,0,innerWidth,innerHeight);
+  ctxb.clearRect(0,0,innerWidth,innerHeight);
+  for(const s of stars){
+    s.y += s.v;
+    if(s.y>innerHeight) s.y = -2;
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,'+(0.6*Math.random()) +')';ctx.fill();
+    ctxb.beginPath();ctx.arc(s.x,s.y,s.r*2,0,Math.PI*2);ctxb.fillStyle='rgba(180,160,255,0.05)';ctxb.fill();
+  }
+  requestAnimationFrame(tick);
+}
+tick();
+
+// ======= auth handling =======
+openLogin.addEventListener('click',()=>{loginModal.style.display='flex'});
+
+signupBtn.addEventListener('click',async()=>{
+  try{
+    const u = await auth.createUserWithEmailAndPassword(emailInput.value,pwInput.value);
+    console.log('signed up',u);loginModal.style.display='none';
+  }catch(e){alert('Chyba registrace: '+e.message)}
+});
+signinBtn.addEventListener('click',async()=>{
+  try{await auth.signInWithEmailAndPassword(emailInput.value,pwInput.value);loginModal.style.display='none'}catch(e){alert('Chyba přihlášení: '+e.message)}
+});
+logoutBtn.addEventListener('click',()=>auth.signOut());
+
+auth.onAuthStateChanged(async user=>{
+  currentUser = user;
+  if(user){
+    welcome.style.display='none';
+    appDiv.style.display='block';
+    userEmail.textContent = user.email;
+    // get or create workspace doc
+    userDocRef = db.collection('workspaces').doc(user.uid);
+    const snap = await userDocRef.get();
+    if(!snap.exists){
+      await userDocRef.set({sections:{}, updated: firebase.firestore.FieldValue.serverTimestamp()});
+    }
+    // listen to real-time updates
+    userDocRef.onSnapshot(snap=>{
+      const data = snap.data() || {sections:{}};
+      workspace = data;
+      renderSections();
+      // if active ids exist, re-open
+      if(activeSectionId && workspace.sections && workspace.sections[activeSectionId]){
+        if(activeSubId && workspace.sections[activeSectionId].subs && workspace.sections[activeSectionId].subs[activeSubId]){
+          openSub(activeSectionId, activeSubId);
+        }
+      }
+    });
+  }else{
+    welcome.style.display='flex';
+    appDiv.style.display='none';
+    userEmail.textContent = '—';
+  }
+});
+
+// ======= sections UI =======
+function renderSections(){
+  sectionsList.innerHTML = '';
+  const secs = workspace.sections || {};
+  for(const id of Object.keys(secs)){
+    const s = secs[id];
+    const el = document.createElement('div');
+    el.className='section';
+    if(id===activeSectionId) el.classList.add('active');
+    el.dataset.id=id;
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:10px"><div style="width:10px;height:10px;border-radius:50%;background:var(--accent)"></div><div><div style='font-weight:700'>${escapeHtml(s.name)}</div><div style='font-size:12px;color:var(--muted)'>${Object.keys(s.subs||{}).length} podsekcí</div></div></div><div style='display:flex;gap:8px'><button class='btn ghost small' data-act='copy' data-id='${id}'>Kopírovat</button></div>`;
+    sectionsList.appendChild(el);
+
+    el.addEventListener('click',e=>{
+      if(e.target && e.target.dataset && e.target.dataset.act==='copy'){
+        copySection(id);
+        return;
+      }
+      activeSectionId = id; activeSubId = null; renderSections(); renderSubList(id);
+    });
+
+    el.addEventListener('contextmenu',e=>{e.preventDefault();showCtx(e.pageX,e.pageY,'section',id)});
+  }
+}
+
+newSectionBtn.addEventListener('click',()=>createSection());
+
+function createSection(name){
+  const id = 's_'+Date.now();
+  const sname = name||'Nová sekce';
+  workspace.sections = workspace.sections || {};
+  workspace.sections[id] = {name:sname, subs:{}};
+  saveWorkspace();
+}
+
+function showCtx(x,y,type,id){
+  ctxmenu.style.left = x+'px';ctxmenu.style.top = y+'px';ctxmenu.style.display='block';
+  ctxmenu.dataset.targetType = type;ctxmenu.dataset.targetId = id;
+}
+
+window.addEventListener('click',()=>{ctxmenu.style.display='none'});
+ctxmenu.addEventListener('click',e=>{
+  const act = e.target.dataset.action;
+  const type = ctxmenu.dataset.targetType; const id = ctxmenu.dataset.targetId;
+  if(act==='newSection'){createSection();}
+  if(act==='rename'){const newName = prompt('Nový název:'); if(newName){ if(type==='section'){workspace.sections[id].name=newName;} else if(type==='sub'){const [sid,subid]=id.split('||'); workspace.sections[sid].subs[subid].name=newName;} saveWorkspace();}}
+  if(act==='delete'){if(confirm('Smazat?')){ if(type==='section'){delete workspace.sections[id]; if(activeSectionId===id){activeSectionId=null;activeSubId=null;doc.innerHTML='';} } else if(type==='sub'){const [sid,subid]=id.split('||'); delete workspace.sections[sid].subs[subid]; if(activeSubId===subid) {activeSubId=null;doc.innerHTML=''} } saveWorkspace();}}
+  if(act==='copy'){ if(type==='section'){copySection(id);} else if(type==='sub'){const [sid,subid]=id.split('||');copySub(sid,subid);} }
+});
+
+function renderSubList(sectionId){
+  const container = document.createElement('div');
+  container.className='sublist';
+  const subs = workspace.sections[sectionId].subs || {};
+  for(const subid of Object.keys(subs)){
+    const s = subs[subid];
+    const el = document.createElement('div'); el.className='sub'; if(subid===activeSubId) el.classList.add('active'); el.textContent = s.name; el.dataset.id = subid;
+    el.addEventListener('click',()=>{openSub(sectionId,subid)});
+    el.addEventListener('contextmenu',e=>{e.preventDefault();showCtx(e.pageX,e.pageY,'sub',sectionId+'||'+subid)});
+    container.appendChild(el);
+  }
+  // add button
+  const add = document.createElement('div'); add.style.padding='8px'; add.innerHTML = `<button class='btn'>Nová podsekce</button>`;
+  add.querySelector('button').addEventListener('click',()=>createSub(sectionId));
+  sectionsList.querySelectorAll('.section').forEach(n=>{if(n.dataset.id===sectionId){ // append sublist
+    // remove old sublist
+    const old = n.querySelector('.sublist'); if(old) old.remove(); n.appendChild(container); n.appendChild(add);
+  }});
+}
+
+function createSub(sectionId,name){
+  const subid = 'sub_'+Date.now();
+  workspace.sections[sectionId].subs = workspace.sections[sectionId].subs || {};
+  workspace.sections[sectionId].subs[subid] = {name:name||'Nová podsekce', content:'', updated: firebase.firestore.FieldValue.serverTimestamp()};
+  saveWorkspace();
+}
+
+function openSub(sectionId, subId){
+  activeSectionId = sectionId; activeSubId = subId; renderSections(); renderSubList(sectionId);
+  const sub = workspace.sections[sectionId].subs[subId];
+  doc.innerHTML = sub.content || '';
+  currentPath.textContent = workspace.sections[sectionId].name + ' → ' + sub.name;
+  const d = sub.updated ? (sub.updated.toDate ? sub.updated.toDate() : new Date()) : new Date();
+  lastEditedLabel.textContent = d.toLocaleString();
+}
+
+// save doc when content changes (debounced)
+let saveTimer = null;
+doc.addEventListener('input',()=>{
+  if(!currentUser || !activeSectionId || !activeSubId) return;
+  if(saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    workspace.sections[activeSectionId].subs[activeSubId].content = doc.innerHTML;
+    workspace.sections[activeSectionId].subs[activeSubId].updated = firebase.firestore.FieldValue.serverTimestamp();
+    workspace.updated = firebase.firestore.FieldValue.serverTimestamp();
+    saveWorkspace();
+  },800);
+});
+
+function saveWorkspace(){
+  if(!userDocRef) return;
+  // Firestore doesn't accept undefined; ensure object cleanliness
+  userDocRef.set(workspace).catch(e=>console.error(e));
+}
+
+// copy operations
+function copySection(sectionId){
+  const original = workspace.sections[sectionId];
+  const newid = 's_'+Date.now();
+  // deep copy name and all subs including content and paintings
+  workspace.sections[newid] = {name: original.name + ' (kopie)', subs:{}};
+  for(const sid of Object.keys(original.subs||{})){
+    const s = original.subs[sid];
+    const ns = 'sub_'+(Date.now()+Math.floor(Math.random()*1000));
+    workspace.sections[newid].subs[ns] = {name: s.name, content: s.content, updated: firebase.firestore.FieldValue.serverTimestamp()};
+  }
+  saveWorkspace();
+}
+function copySub(sectionId, subId){
+  const s = workspace.sections[sectionId].subs[subId];
+  const ns = 'sub_'+Date.now();
+  workspace.sections[sectionId].subs[ns] = {name: s.name+' (kopie)', content: s.content, updated: firebase.firestore.FieldValue.serverTimestamp()};
+  saveWorkspace();
+}
+
+// keyboard shortcuts for toolbar actions
+$('#boldBtn').addEventListener('click',()=>document.execCommand('bold'));
+$('#italicBtn').addEventListener('click',()=>document.execCommand('italic'));
+$('#undoBtn').addEventListener('click',()=>document.execCommand('undo'));
+$('#redoBtn').addEventListener('click',()=>document.execCommand('redo'));
+
+// insert image
+$('#insertImg').addEventListener('click',async()=>{
+  const url = prompt('URL obrázku nebo vlož data URL (base64):'); if(!url) return; document.execCommand('insertImage', false, url);
+});
+
+// painters
+paintBtn.addEventListener('click',()=>{painter.style.display='block';setupPainter();});
+closePainter.addEventListener('click',()=>{painter.style.display='none'});
+
+function setupPainter(){
+  paintCanvas.width = paintCanvas.clientWidth; paintCanvas.height = paintCanvas.clientHeight;
+  const pctx = paintCanvas.getContext('2d'); pctx.fillStyle='white'; pctx.fillRect(0,0,paintCanvas.width,paintCanvas.height);
+  let drawing=false; pctx.lineWidth=4; pctx.lineCap='round';
+  paintCanvas.onpointerdown = (e)=>{drawing=true; pctx.beginPath(); pctx.moveTo(e.offsetX* (paintCanvas.width/paintCanvas.clientWidth), e.offsetY*(paintCanvas.height/paintCanvas.clientHeight))};
+  paintCanvas.onpointermove = (e)=>{ if(!drawing) return; pctx.lineTo(e.offsetX*(paintCanvas.width/paintCanvas.clientWidth), e.offsetY*(paintCanvas.height/paintCanvas.clientHeight)); pctx.stroke(); };
+  paintCanvas.onpointerup = ()=>{drawing=false};
+}
+
+savePainting.addEventListener('click',()=>{
+  const data = paintCanvas.toDataURL('image/png'); document.execCommand('insertImage', false, data); painter.style.display='none';
+});
+
+// small helpers
+function escapeHtml(s){return (s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+
+// copy via context menu buttons
+// already hooked above
+
+// show last updated in toolbar (simple poll from workspace when loaded)
+setInterval(()=>{
+  if(activeSectionId && activeSubId && workspace.sections && workspace.sections[activeSectionId]){
+    const sub = workspace.sections[activeSectionId].subs[activeSubId];
+    if(sub && sub.updated){const d = sub.updated.toDate ? sub.updated.toDate() : new Date(); lastEditedLabel.textContent = d.toLocaleString();}
+  }
+},2000);
+
+// allow right-click to create section on empty area
+sectionsList.addEventListener('contextmenu',e=>{e.preventDefault(); showCtx(e.pageX,e.pageY,'sectionsRoot','');});
+
+// simple drag & drop of images into doc
+doc.addEventListener('paste', (e)=>{
+  const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+  for(const it of items){ if(it.type.indexOf('image')!==-1){ const file = it.getAsFile(); const reader = new FileReader(); reader.onload = function(evt){ document.execCommand('insertImage', false, evt.target.result); }; reader.readAsDataURL(file); }}
+});
+
+doc.addEventListener('drop', (e)=>{e.preventDefault(); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if(f && f.type.startsWith('image')){ const r=new FileReader(); r.onload=(ev)=>{ document.execCommand('insertImage',false,ev.target.result); }; r.readAsDataURL(f);} });
+
+// context: right-click new-sub when clicking on section header
+// implemented via showCtx with create actions
+
+// copy helper for buttons inside sections already
+
+// init demo data for non-auth users (optional) — disabled by default
+
+</script>
+<script>
+// ====== Falling diagonal blurred stars background ======
+const canvas = document.getElementById('starsCanvas');
+const ctx = canvas.getContext('2d');
+const blurCanvas = document.getElementById('starsBlur');
+const blurCtx = blurCanvas.getContext('2d');
+
+function resize(){
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  blurCanvas.width = window.innerWidth;
+  blurCanvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// generate stars
+let stars = [];
+const STAR_COUNT = 160; // primereny pocet
+for(let i=0;i<STAR_COUNT;i++){
+  stars.push({
+    x: Math.random()*canvas.width,
+    y: Math.random()*canvas.height,
+    size: Math.random()*2 + 1,
+    speed: Math.random()*0.6 + 0.3
+  });
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  blurCtx.clearRect(0,0,blurCanvas.width,blurCanvas.height);
+
+  stars.forEach(s =>{
+    // diagonal fall
+    s.x -= s.speed * 0.8;
+    s.y += s.speed * 1.3;
+
+    if(s.x < 0 || s.y > canvas.height){
+      s.x = Math.random()*canvas.width;
+      s.y = -10;
+    }
+
+    ctx.fillStyle = 'white';
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
+    ctx.fill();
+
+    // blurred layer
+    blurCtx.fillStyle = 'white';
+    blurCtx.globalAlpha = 0.4;
+    blurCtx.beginPath();
+    blurCtx.arc(s.x, s.y, s.size*1.8, 0, Math.PI*2);
+    blurCtx.fill();
+  });
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
